@@ -197,29 +197,61 @@ export default DS.Adapter.extend(Ember.Evented, {
     }, fmt('DS: FirebaseAdapter#findAll %@ to %@', [type, ref.toString()]));
   },
 
-  findQuery: function(store, type, query) {
+  findQuery: function(store, type, query, recordArray) {
     var adapter = this;
-    var ref = this._getRef(type);
+    var ref;
 
-    ref = this.applyQueryToRef(ref, query);
+    if (query.ref) {
+      ref = query.ref;
+    } else {
+      ref = this.applyQueryToRef(this._getRef(type), query);
+    }
 
-    return new Promise(function(resolve, reject) {
-      // Listen for child events on the type
-      ref.once('value', function(snapshot) {
-        if (!adapter._findAllHasEventsForType(type)) {
-          adapter._findAllAddEventListeners(store, type, ref);
-        }
-        var results = [];
-        snapshot.forEach(function(childSnapshot) {
-          var payload = adapter._assignIdToPayload(childSnapshot);
-          adapter._updateRecordCacheForType(type, payload);
-          results.push(payload);
-        });
-        resolve(results);
-      }, function(error) {
-        reject(error);
-      });
-    }, fmt('DS: FirebaseAdapter#findQuery %@ with %@', [type, query]));
+    ref.on('child_added', function(snapshot) {
+      console.log('child_added', snapshot.key());
+      var record = store.recordForId(type, snapshot.key());
+
+      if (!record || !record.__listening) {
+        let payload = adapter._assignIdToPayload(snapshot);
+        let serializer = store.serializerFor(type);
+        adapter._updateRecordCacheForType(type, payload);
+        record = store.push(type, serializer.extractSingle(store, type, payload));
+      }
+
+      if (record) {
+        recordArray.pushObject(record);
+      }
+    });
+
+    ref.on('child_changed', function(snapshot) {
+      console.log('child_changed', snapshot.key());
+      var record = store.recordForId(type, snapshot.key());
+
+      if (!record || !record.__listening) {
+        let payload = adapter._assignIdToPayload(snapshot);
+        let serializer = store.serializerFor(type);
+        adapter._updateRecordCacheForType(type, payload);
+        record = store.push(type, serializer.extractSingle(store, type, payload));
+      }
+
+      // TODO: notify array that record changed?
+    });
+
+    ref.on('child_moved', function(snapshot, prev) {
+      console.log('child_moved', snapshot.key(), prev);
+      var record = store.recordForId(type, snapshot.key());
+      var index = 0; // FIXME: get real index
+      recordArray.removeObject(record);
+      recordArray.addObject(record, index);
+    });
+
+    ref.on('child_removed', function(snapshot) {
+      console.log('child_removed', snapshot.key());
+      var record = store.recordForId(type, snapshot.key());
+      recordArray.removeObject(record);
+    });
+
+    return Promise.cast(Ember.A(), fmt('DS: FirebaseAdapter#findQuery %@ with %@', [type, query]));
   },
 
   applyQueryToRef: function (ref, query) {
