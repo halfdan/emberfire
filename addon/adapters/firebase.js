@@ -337,14 +337,17 @@ export default DS.Adapter.extend(Ember.Evented, {
     for saving nested records as well.
 
   */
-  updateRecord: function(store, type, snapshot, embeddedType) {
+  updateRecord: function(store, type, snapshot) {
     var adapter = this;
     var record = snapshot.record || snapshot;
     var recordRef = record.__firebaseRef || this._getRef(type, record.get('id'));
     var recordCache = adapter._getRecordCache(type.typeKey, record.get('id'));
 
+    var pathPieces = recordRef.path.toString().split('/');
+    var lastPiece = pathPieces[pathPieces.length-1];
+    var includeId = (lastPiece !== record.id); // record has no key
     var serializedRecord = record.serialize({
-      includeId: embeddedType === 'belongsTo'
+      includeId
     });
 
     return new Promise(function(resolve, reject) {
@@ -459,12 +462,7 @@ export default DS.Adapter.extend(Ember.Evented, {
     var isEmbedded = relationship.options.embedded === true;
     if (isEmbedded) {
       record.__firebaseRef = ref;
-      record.send('willCommit');
-      return this.updateRecord(store, relationship.type, record, 'hasMany')
-        .then(function () {
-          record.set('_attributes', {});
-          record.adapterDidCommit();
-        });
+      return record.save();
     }
 
     return toPromise(ref.set, ref,  [true]);
@@ -484,12 +482,7 @@ export default DS.Adapter.extend(Ember.Evented, {
   _saveBelongsToRecord: function(store, type, relationship, id, parentRef) {
     var record = store.getById(relationship.type, id);
     record.__firebaseRef = parentRef.child(relationship.key);
-    record.send('willCommit');
-    return this.updateRecord(store, relationship.type, record, 'belongsTo')
-      .then(function () {
-        record.set('_attributes', {});
-        record.adapterDidCommit();
-      });
+    return record.save();
   },
 
   /**
@@ -497,7 +490,7 @@ export default DS.Adapter.extend(Ember.Evented, {
   */
   deleteRecord: function(store, type, snapshot) {
     var record = snapshot.record || snapshot;
-    var ref = this._getRef(type, record.get('id'));
+    var ref = record.__firebaseRef || this._getRef(type, record.get('id'));
     return toPromise(ref.remove, ref);
   },
 
